@@ -1,59 +1,86 @@
-name: 🤝 Open Contribution System
+name: 🌐 Full Open Community Automation
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  issues:
+    types: [opened]
   workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
+  issues: write
+  discussions: write
 
 jobs:
-  prepare-branch:
-    name: 🪄 Auto Create Feature Branch
+  auto-discussion:
+    name: 💬 Auto Open Discussion on Push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: 🧭 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 💭 Create new discussion for latest commit
+        uses: peter-evans/create-discussion@v2
+        with:
+          title: "🗣️ New Commit Discussion — ${{ github.event.head_commit.message }}"
+          body: |
+            A new commit was pushed by @${{ github.actor }}  
+            **Commit Message:**  
+            ```
+            ${{ github.event.head_commit.message }}
+            ```  
+            **SHA:** `${{ github.sha }}`  
+            ---
+            Use this thread to discuss this change or suggest follow-ups.
+          category: "General"
+
+  auto-issue:
+    name: 🪶 Auto Create Issue on Push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: 🧭 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🧾 Create linked issue
+        uses: peter-evans/create-issue-from-file@v4
+        with:
+          title: "🚀 Update Trigger — ${{ github.event.head_commit.message }}"
+          content-filepath: .github/ISSUE_TEMPLATE/auto.md
+          labels: |
+            automation
+            community
+          assignees: ${{ github.actor }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  auto-pr:
+    name: 🤝 Auto Approve & Merge PRs
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
       - name: 🧭 Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: 🧩 Create contributor branch
-        run: |
-          contributor="${{ github.actor }}"
-          branch="feature/${contributor}"
-          echo "🔧 Creating branch: $branch"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch" || git checkout "$branch"
-          git push origin "$branch" || echo "Branch already exists"
-
-  auto-merge:
-    name: 🤖 Auto Approve & Merge
-    runs-on: ubuntu-latest
-    needs: prepare-branch
-    steps:
-      - name: 🧭 Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: ✅ Auto Approve and Merge PRs
+      - name: ✅ Auto approve & merge PR
         uses: pascalgn/automerge-action@v0.15.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MERGE_METHOD: merge
-          MERGE_COMMIT_MESSAGE: "🤝 Auto-merged community PR by ${{ github.actor }}"
+          MERGE_COMMIT_MESSAGE: "🤝 Auto-merged PR by ${{ github.actor }}"
 
   notify:
-    name: 📢 Notify Contribution
+    name: 📢 Community Notifications
     runs-on: ubuntu-latest
-    needs: auto-merge
+    needs: [auto-discussion, auto-issue, auto-pr]
     steps:
-      - name: 💬 Print Thank-you Message
+      - name: 💬 Summary
         run: |
-          echo "🎉 Thank you @${{ github.actor }} for contributing!"
-          echo "🪶 Your PR has been successfully merged into main."
+          echo "✅ Community automation executed."
+          echo "🗣️ New discussion and issue created for push by @${{ github.actor }}"
+          echo "🤝 Pull requests auto-approved and merged."
