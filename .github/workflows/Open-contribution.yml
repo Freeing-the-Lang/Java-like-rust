@@ -1,12 +1,10 @@
-name: 🌐 Full Open Community Automation
+name: 🌍 Open Community Automation (GraphQL Edition)
 
 on:
   push:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, closed]
-  issues:
-    types: [opened]
   workflow_dispatch:
 
 permissions:
@@ -16,30 +14,60 @@ permissions:
   discussions: write
 
 jobs:
-  auto-discussion:
-    name: 💬 Auto Open Discussion on Push
+  create-discussion:
+    name: 💬 Auto Create Discussion (GraphQL)
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     steps:
       - name: 🧭 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 💭 Create new discussion for latest commit
-        uses: peter-evans/create-discussion@v2
+      - name: 💭 Create Discussion using GraphQL
+        uses: actions/github-script@v7
         with:
-          title: "🗣️ New Commit Discussion — ${{ github.event.head_commit.message }}"
-          body: |
-            A new commit was pushed by @${{ github.actor }}  
-            **Commit Message:**  
-            ```
-            ${{ github.event.head_commit.message }}
-            ```  
-            **SHA:** `${{ github.sha }}`  
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const repoInfo = await github.graphql(`
+              query {
+                repository(owner: "${{ github.repository_owner }}", name: "${{ github.event.repository.name }}") {
+                  id
+                  discussionCategories(first: 10) {
+                    nodes { id name }
+                  }
+                }
+              }
+            `);
+            const repoId = repoInfo.repository.id;
+            const category = repoInfo.repository.discussionCategories.nodes.find(c => c.name === "General");
+            if (!category) {
+              console.log("⚠️ No 'General' category found — please create one in Discussions first.");
+              return;
+            }
+            const categoryId = category.id;
+            const title = `🗣️ New Commit Discussion — ${process.env.GITHUB_SHA.slice(0, 7)}`;
+            const body = `
+            A new commit was pushed by @${process.env.GITHUB_ACTOR}  
+            **Commit message:**  
+            ${process.env.GITHUB_HEAD_REF || 'Manual Push'}  
             ---
-            Use this thread to discuss this change or suggest follow-ups.
-          category: "General"
+            SHA: \`${process.env.GITHUB_SHA}\`
+            `;
+            const mutation = `
+              mutation($repoId: ID!, $categoryId: ID!, $title: String!, $body: String!) {
+                createDiscussion(input: {
+                  repositoryId: $repoId,
+                  categoryId: $categoryId,
+                  title: $title,
+                  body: $body
+                }) {
+                  discussion { url }
+                }
+              }
+            `;
+            const result = await github.graphql(mutation, { repoId, categoryId, title, body });
+            console.log("✅ Discussion created:", result.createDiscussion.discussion.url);
 
-  auto-issue:
+  create-issue:
     name: 🪶 Auto Create Issue on Push
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
@@ -54,19 +82,18 @@ jobs:
           content-filepath: .github/ISSUE_TEMPLATE/auto.md
           labels: |
             automation
-            community
+            discussion-link
           assignees: ${{ github.actor }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  auto-pr:
+  auto-merge:
     name: 🤝 Auto Approve & Merge PRs
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
       - name: 🧭 Checkout Repository
         uses: actions/checkout@v4
-
       - name: ✅ Auto approve & merge PR
         uses: pascalgn/automerge-action@v0.15.6
         env:
@@ -74,13 +101,12 @@ jobs:
           MERGE_METHOD: merge
           MERGE_COMMIT_MESSAGE: "🤝 Auto-merged PR by ${{ github.actor }}"
 
-  notify:
-    name: 📢 Community Notifications
+  summary:
+    name: 📢 Notify
     runs-on: ubuntu-latest
-    needs: [auto-discussion, auto-issue, auto-pr]
+    needs: [create-discussion, create-issue, auto-merge]
     steps:
-      - name: 💬 Summary
+      - name: 💬 Log summary
         run: |
-          echo "✅ Community automation executed."
-          echo "🗣️ New discussion and issue created for push by @${{ github.actor }}"
+          echo "✅ Discussion and Issue auto-created."
           echo "🤝 Pull requests auto-approved and merged."
