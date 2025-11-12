@@ -1,0 +1,59 @@
+name: 🤝 Open Contribution System
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare-branch:
+    name: 🪄 Auto Create Feature Branch
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: 🧭 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🧩 Create contributor branch
+        run: |
+          contributor="${{ github.actor }}"
+          branch="feature/${contributor}"
+          echo "🔧 Creating branch: $branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch" || git checkout "$branch"
+          git push origin "$branch" || echo "Branch already exists"
+
+  auto-merge:
+    name: 🤖 Auto Approve & Merge
+    runs-on: ubuntu-latest
+    needs: prepare-branch
+    steps:
+      - name: 🧭 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ✅ Auto Approve and Merge PRs
+        uses: pascalgn/automerge-action@v0.15.6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_METHOD: merge
+          MERGE_COMMIT_MESSAGE: "🤝 Auto-merged community PR by ${{ github.actor }}"
+
+  notify:
+    name: 📢 Notify Contribution
+    runs-on: ubuntu-latest
+    needs: auto-merge
+    steps:
+      - name: 💬 Print Thank-you Message
+        run: |
+          echo "🎉 Thank you @${{ github.actor }} for contributing!"
+          echo "🪶 Your PR has been successfully merged into main."
